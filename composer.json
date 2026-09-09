@@ -1,0 +1,75 @@
+{
+  "name": "codeigniter4/appstarter",
+  "type": "project",
+  "description": "CodeIgniter4 starter app",
+  "homepage": "https://codeigniter.com",
+  "license": "MIT",
+  "require": {
+    "php": "^8.1",
+    "codeigniter4/framework": "^4.5",
+    "benedmunds/codeigniter-ion-auth": "4.x-dev",
+    "aws/aws-sdk-php": "^3.258",
+    "mpdf/mpdf": "^8.2.7",
+    "razorpay/razorpay": "^2.9.2",
+    "stripe/stripe-php": "^19.0.0",
+    "matscode/paystack": "^1.10.1",
+    "yabacon/paystack-php": "^2.2",
+    "guzzlehttp/psr7": "^2.4.5",
+    "psr/http-factory": "^1.1",
+    "google/apiclient": "^2.18.4",
+    "seunmatt/codeigniter-log-viewer": "^2.0.3",
+    "phpoffice/phpspreadsheet": "^5.3.0",
+    "guzzlehttp/guzzle": "^7.10.0",
+    "nyholm/psr7": "^1.8.2",
+    "symfony/process": "^7.4.0",
+    "codeigniter4/queue": "dev-develop",
+    "xendit/xendit-php": "^7.0",
+    "cashfree/cashfree-pg": "^5.0"
+  },
+  "require-dev": {
+    "fakerphp/faker": "^1.9",
+    "mikey179/vfsstream": "^1.6",
+    "phpunit/phpunit": "^9.1"
+  },
+  "suggest": {
+    "ext-fileinfo": "Improves mime type detection for files"
+  },
+  "autoload": {
+    "psr-4": {},
+    "exclude-from-classmap": [
+      "**/Database/Migrations/**"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\Support\\": "tests/_support"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "pre-autoload-dump": "Google\\Task\\Composer::cleanup"
+  },
+  "extra": {
+    "google/apiclient-services": [
+      "FirebaseCloudMessaging"
+    ]
+  },
+  "support": {
+    "forum": "http://forum.codeigniter.com/",
+    "source": "https://github.com/codeigniter4/CodeIgniter4",
+    "slack": "https://codeigniterchat.slack.com"
+  },
+  "minimum-stability": "stable",
+  "repositories": {
+    "ionAuth": {
+      "type": "vcs",
+      "url": "git@github.com:benedmunds/CodeIgniter-Ion-Auth.git"
+    }
+  },
+  "prefer-stable": true,
+  "config": {
+    "allow-plugins": {
+      "php-http/discovery": true
+    }
+  }
+}
