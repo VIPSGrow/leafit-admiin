@@ -9796,18 +9796,72 @@ if (!function_exists('_settle_completed_non_cod')) {
     {
         $partner_id = $order['partner_id'];
         $user_details = fetch_details('users', ['id' => $partner_id]);
-        $unsettled_amount = $order['final_total'] - $commission;
-
-        $updateData = ["balance" => ($user_details[0]['balance'] + $unsettled_amount)];
-        if ($otpEnabled) {
-            $updateData['admin_commission'] = ($user_details[0]['admin_commission'] + $commission);
-        } else {
-            // OTP path updates order_services after both payment blocks; non-OTP updates here
-            update_details(["status" => 'completed'], ["order_id" => $order_id], "order_services");
+        if (empty($user_details) || !empty($order['is_commission_settled'])) {
+            return;
         }
-        update_details($updateData, ["id" => $partner_id], "users");
 
-        add_settlement_cashcollection_history('Received by admin', 'received_by_admin', date('Y-m-d'), date('h:i:s'), $unsettled_amount, $partner_id, $order_id, '', $admin_commission_pct, $order['final_total'], $commission);
+        $unsettled_amount = max(0, (float) $order['final_total'] - $commission);
+        $pending_commission = max(0, (float) ($user_details[0]['payable_commision'] ?? 0));
+        $commission_offset = min($pending_commission, $unsettled_amount);
+        $settlement_amount = $unsettled_amount - $commission_offset;
+
+        // Automatic settlement pays the provider's net amount immediately. Any
+        // outstanding COD commission is offset before the settlement is recorded.
+        $updateData = [
+            'payable_commision' => $pending_commission - $commission_offset,
+            'admin_commission' => (float) ($user_details[0]['admin_commission'] ?? 0) + $commission,
+        ];
+        update_details($updateData, ['id' => $partner_id], 'users');
+
+        if ($settlement_amount > 0) {
+            $settlementReference = 'AUTO-SETTLEMENT-' . $order_id;
+            $existingSettlement = fetch_details('transactions', [
+                'order_id' => $settlementReference,
+                'type' => 'fund_transfer',
+                'status' => 'success',
+            ], ['id'], 1);
+
+            if (empty($existingSettlement)) {
+                add_transaction([
+                    'transaction_type' => 'transaction',
+                    'user_id' => $partner_id,
+                    'partner_id' => $partner_id,
+                    'order_id' => $settlementReference,
+                    'type' => 'fund_transfer',
+                    'txn_id' => '',
+                    'amount' => $settlement_amount,
+                    'status' => 'success',
+                    'currency_code' => null,
+                    'message' => 'automatic commission settlement',
+                ]);
+            }
+        }
+
+        update_details(['is_commission_settled' => 1], ['id' => $order_id], 'orders');
+        $existingSettlementHistory = fetch_details('settlement_cashcollection_history', [
+            'order_id' => $order_id,
+            'type' => 'settled_by_settlement',
+        ], ['id'], 1);
+        if (empty($existingSettlementHistory)) {
+            insert_details([
+                'provider_id' => $partner_id,
+                'message' => 'Automatic settlement on booking completion',
+                'amount' => $settlement_amount,
+                'status' => 'credit',
+                'date' => date('Y-m-d H:i:s'),
+            ], 'settlement_history');
+
+            if ($settlement_amount > 0) {
+                update_balance($settlement_amount, $partner_id, 'add');
+            }
+
+            add_settlement_cashcollection_history('Automatic settlement', 'settled_by_settlement', date('Y-m-d'), date('h:i:s'), $settlement_amount, $partner_id, $order_id, '', $admin_commission_pct, $order['final_total'], $commission);
+        }
+
+        if (!$otpEnabled) {
+            // OTP path updates order_services after both payment blocks; non-OTP updates here.
+            update_details(['status' => 'completed'], ['order_id' => $order_id], 'order_services');
+        }
 
         $customer_details = fetch_details('users', ['id' => $order['user_id']]);
         _send_rating_request_notification($order_id, $customer_details[0]['id'], $partner_id, $languageCode);
@@ -10092,7 +10146,7 @@ if (!function_exists('validate_order_status')) {
             $order_details = fetch_details('orders', ['id' => $order_id]);
             $partner_id = $order_details[0]['partner_id'];
             $admin_commission_pct = get_admin_commision($partner_id);
-            $commission = intval($order_details[0]['final_total']) * (intval($admin_commission_pct) / 100);
+            $commission = (float) $order_details[0]['final_total'] * ((float) $admin_commission_pct / 100);
 
             update_details(['status' => $status] + $statusActorFields, ['id' => $order_id], 'orders');
             send_booking_status_notifications($order_id, $status, $translated_status, $active_status, $languageCode, $user_id);
