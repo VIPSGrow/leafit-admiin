@@ -59,7 +59,23 @@ isset($data['primary_shadow']) && $data['primary_shadow'] != "" ?  $primary_shad
     </script>
     <meta name="csrf-token" content="<?= csrf_hash() ?>">
     <meta name="csrf-name" content="<?= csrf_token() ?>">
-</head>
+
+    <!-- PWA -->
+    <meta name="theme-color" content="#05a6e8">
+    <link rel="manifest" href="/public/manifest.json" crossorigin="use-credentials">
+    <link rel="icon" type="image/png" href="/public/images/icons/favicon.png">
+    <link rel="apple-touch-icon" href="/public/images/icons/ios/180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/public/sw.js')
+                    .then((reg) => console.log('PWA SW Active:', reg.scope))
+                    .catch((err) => console.error('PWA SW Failed:', err));
+            });
+        }
+    </script>
+    <!-- End PWA -->
 
 <!--
     Partner panel body marker class.

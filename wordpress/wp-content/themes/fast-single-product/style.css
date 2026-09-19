@@ -1,0 +1,52 @@
+/*
+Theme Name: Fast Single Product
+Theme URI: https://example.com
+Description: Ultra-lightweight, high-performance single-product D2C WordPress theme optimized for Google PageSpeed (98-100 desktop, 95+ mobile). Zero page builder dependencies, WooCommerce integrated, <650 DOM nodes. Ketone.com theme design system.
+Version: 1.0.0
+Author: Performance Dev Team
+Author URI: https://example.com
+License: GPL v2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: fast-single-product
+Domain Path: /languages
+Requires at least: 6.0
+Requires PHP: 7.4
+WC requires at least: 7.0
+*/
+
+/* 
+   Riforma LL font family (matching Ketone.com design)
+   Font weights: 100 (Light), 500 (Medium), 850 (Heavy)
+*/
+@font-face {
+	font-display: swap;
+	font-family: 'Riforma LL';
+	font-style: normal;
+	font-weight: 100;
+	src: url('https://cdn.shopify.com/s/files/1/0257/2733/6499/files/RiformaLight.woff2') format('woff2'),
+		url('https://cdn.shopify.com/s/files/1/0257/2733/6499/files/RiformaLight.woff') format('woff'),
+		url('https://cdn.shopify.com/s/files/1/0257/2733/6499/files/RiformaLight.ttf') format('truetype');
+}
+
+@font-face {
+	font-display: swap;
+	font-family: 'Riforma LL';
+	font-style: bold;
+	font-weight: 500;
+	src: url('https://cdn.shopify.com/s/files/1/0257/2733/6499/files/RiformaMedium.woff2') format('woff2'),
+		url('https://cdn.shopify.com/s/files/1/0257/2733/6499/files/RiformaMedium.woff') format('woff'),
+		url('https://cdn.shopify.com/s/files/1/0257/2733/6499/files/RiformaMedium.ttf') format('truetype');
+}
+
+@font-face {
+	font-display: swap;
+	font-family: 'Riforma LL';
+	font-style: normal;
+	font-weight: 850;
+	src: url('https://cdn.shopify.com/s/files/1/0257/2733/6499/files/RiformaLL-Heavy.woff2') format('woff2');
+}
+
+/* 
+   This file intentionally minimal. All styles are in assets/css/main.css 
+   for better critical path management and inline optimization.
+*/

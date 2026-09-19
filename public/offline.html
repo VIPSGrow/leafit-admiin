@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#05a6e8">
+  <title>Offline - LeafIT</title>
+  <link rel="manifest" href="/public/manifest.json">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      display: flex;
+      height: 100vh;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(135deg, #f5f7fa 0%, #e4e9f2 100%);
+      padding: 20px;
+    }
+    .box {
+      background: white;
+      padding: 3rem 2rem;
+      border-radius: 16px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+      max-width: 420px;
+      width: 100%;
+    }
+    .icon {
+      width: 80px;
+      height: 80px;
+      background: #05a6e8;
+      border-radius: 50%;
+      margin: 0 auto 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+    }
+    h2 { color: #1f2937; font-size: 1.5rem; margin-bottom: 0.75rem; }
+    p { color: #6b7280; font-size: 1rem; line-height: 1.6; margin-bottom: 1.5rem; }
+    button {
+      padding: 12px 32px;
+      background: #05a6e8;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    button:hover { background: #0487c4; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="icon">&#128274;</div>
+    <h2>You're Offline</h2>
+    <p>It looks like you've lost your internet connection. Please check your network and try again.</p>
+    <button onclick="window.location.reload()">Reconnect</button>
+  </div>
+  <script>
+    window.addEventListener('online', function() { window.location.reload(); });
+  </script>
+</body>
+</html>
