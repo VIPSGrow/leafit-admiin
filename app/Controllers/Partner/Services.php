@@ -280,6 +280,7 @@ class Services extends Partner
                 $this->seoModel->cleanupSeoData($id, 'services');
 
                 $db->transStart();
+                $db->table('service_providers')->delete(['service_id' => $id]);
                 $db->table('services')->delete(['id' => $id]);
                 $db->table('cart')->delete(['service_id' => $id]);
                 $db->transComplete();

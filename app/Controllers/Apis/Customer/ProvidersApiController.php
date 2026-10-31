@@ -451,13 +451,20 @@ class ProvidersApiController extends BaseController
                 // This ensures only services that match the partner's at_store and at_doorstep settings are counted
                 $service_lookup = [];
                 foreach ($partner_lookup as $partner_id => $partner_detail) {
-                    $service_count = $db->table('services')
-                        ->where('user_id', $partner_id)
-                        ->where('at_store', $partner_detail['at_store'])
-                        ->where('at_doorstep', $partner_detail['at_doorstep'])
+                    $assignedServices = $db->table('service_providers')
+                        ->select('service_id')
+                        ->where('provider_id', $partner_id)
+                        ->get()
+                        ->getResultArray();
+                    $serviceQuery = $db->table('services')
                         ->where('status', 1)
                         ->where('approved_by_admin', 1)
-                        ->countAllResults();
+                        ->groupStart()
+                        ->where('user_id', $partner_id);
+                    if (!empty($assignedServices)) {
+                        $serviceQuery->orWhereIn('id', array_column($assignedServices, 'service_id'));
+                    }
+                    $service_count = $serviceQuery->groupEnd()->countAllResults();
 
                     $service_lookup[$partner_id] = (string) $service_count;
                 }

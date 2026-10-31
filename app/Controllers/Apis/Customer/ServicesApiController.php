@@ -42,6 +42,10 @@ class ServicesApiController extends BaseController
             $where['s.approved_by_admin'] = 1;
             $at_store = 0;
             $at_doorstep = 0;
+            $providerFilterId = null;
+            $invalidProviderFilter = false;
+            $whereIn = [];
+            $column_name = '';
 
             // Populate additional_data with location information if provided
             // This is needed to calculate is_Available_at_location in Service_model
@@ -74,46 +78,56 @@ class ServicesApiController extends BaseController
             $provider_slug = $this->request->getPost('provider_slug');
             $service_slug = $this->request->getPost('slug');
 
-            if (!empty($provider_slug)) {
-                $where['pd.slug'] = $provider_slug;
-            }
             if (!empty($service_slug)) {
                 $where['s.slug'] = $service_slug;
             }
 
             if (!empty($provider_slug)) {
                 $provider_row = (new Partners_model())
-                    ->select('at_store, at_doorstep')
+                    ->select('partner_id, at_store, at_doorstep')
                     ->where('slug', $provider_slug)
                     ->first();
                 if (empty($provider_row)) {
                     return response_helper(labels(PROVIDER_NOT_FOUND, 'Provider not found'));
                 }
-                $at_store = $provider_row['at_store'] ?? 0;
-                $at_doorstep = $provider_row['at_doorstep'] ?? 0;
+                $providerFilterId = (int) $provider_row['partner_id'];
+                $at_store = null;
+                $at_doorstep = null;
             }
 
             if ($this->request->getPost('partner_id') && !empty($this->request->getPost('partner_id'))) {
-                $partner_details = fetch_details('partner_details', ['partner_id' => $this->request->getPost('partner_id')]);
-                if (isset($partner_details[0]['at_store']) && $partner_details[0]['at_store'] == 1) {
-                    $at_store = 1;
+                $requestedProviderId = (int) $this->request->getPost('partner_id');
+                if ($providerFilterId !== null && $providerFilterId !== $requestedProviderId) {
+                    $invalidProviderFilter = true;
+                } else {
+                    $providerFilterId = $requestedProviderId;
+                    $at_store = null;
+                    $at_doorstep = null;
                 }
-                if (isset($partner_details[0]['at_doorstep']) && $partner_details[0]['at_doorstep'] == 1) {
-                    $at_doorstep = 1;
-                }
-                $where['s.user_id'] = $this->request->getPost('partner_id');
             }
+
+            if ($providerFilterId !== null) {
+                $whereIn = $Service_model->getServiceIdsForProvider($providerFilterId);
+                $column_name = 's.id';
+                if (empty($whereIn)) {
+                    $invalidProviderFilter = true;
+                }
+            }
+
             if ($this->request->getPost('category_id') && !empty($this->request->getPost('category_id'))) {
                 $where['s.category_id'] = $this->request->getPost('category_id');
             }
             if ($this->request->getPost('id') && !empty($this->request->getPost('id'))) {
                 $where['s.id'] = $this->request->getPost('id');
             }
+            if ($invalidProviderFilter) {
+                $where['s.id'] = 0;
+            }
 
             if (isset($this->user_details['id']) && $this->user_details['id']) {
             }
 
-            $data = $Service_model->list(true, $search, $limit, $offset, $sort, $order, $where, $additional_data, '', '', '', $at_store, $at_doorstep);
+            $data = $Service_model->list(true, $search, $limit, $offset, $sort, $order, $where, $additional_data, $column_name, $whereIn, '', $at_store, $at_doorstep);
 
             if (isset($data['error'])) {
                 return response_helper($data['message']);

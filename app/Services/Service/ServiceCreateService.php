@@ -146,6 +146,19 @@ class ServiceCreateService
         }
 
         $user_id      = $userId ?: (int) $request->getPost('partner');
+        $providerIds = [];
+        if ($userId <= 0) {
+            $submittedProviderIds = $request->getPost('providers');
+            if ($submittedProviderIds === null) {
+                $submittedProviderIds = [$user_id];
+            }
+
+            $providerIds = $this->resolveProviderIds($submittedProviderIds, $user_id);
+            if ($providerIds === null || !$this->service->areApprovedProviders($providerIds)) {
+                return ['error' => true, 'message' => labels('please_select_approved_providers', 'Please select one or more approved providers')];
+            }
+        }
+
         $partner_data = $this->partner->where('partner_id', $user_id)->first();
         if ((int) ($partner_data['type'] ?? -1) === 0 && (int) $request->getVar('members') > 1) {
             return ['error' => true, 'message' => labels('individual_provider_members_must_be_one', 'An individual provider can have only 1 member')];
@@ -223,6 +236,12 @@ class ServiceCreateService
         }
 
         $serviceId        = $this->service->insertID();
+        if ($userId <= 0 && !$this->service->syncProviderAssignments($serviceId, $providerIds)) {
+            $this->db->transRollback();
+            $this->cleanupUploadedFiles($image, $uploadedOtherImages, $uploadedFilesDocuments);
+            return ['error' => true, 'message' => labels('error_occured', 'Error Occured')];
+        }
+
         $postData['translated_fields'] = ServiceTranslationHelper::transformFormDataToTranslatedFields($postData, $defaultLanguage, null);
 
         $translationResult = $this->serviceService->handleServiceCreationWithTranslations($postData, $serviceData, $serviceId, $defaultLanguage);
@@ -256,6 +275,29 @@ class ServiceCreateService
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
+
+    private function resolveProviderIds(mixed $submittedProviderIds, int $primaryProviderId): ?array
+    {
+        if (!is_array($submittedProviderIds) || empty($submittedProviderIds)) {
+            return null;
+        }
+
+        $providerIds = [];
+        foreach ($submittedProviderIds as $providerId) {
+            $validatedId = filter_var($providerId, FILTER_VALIDATE_INT);
+            if ($validatedId === false || $validatedId <= 0) {
+                return null;
+            }
+            $providerIds[] = $validatedId;
+        }
+
+        $providerIds = array_values(array_unique($providerIds));
+        if ($primaryProviderId <= 0 || !in_array($primaryProviderId, $providerIds, true)) {
+            return null;
+        }
+
+        return $providerIds;
+    }
 
     private function validateDefaultLanguageFields(array $postData, string $defaultLanguage): array
     {

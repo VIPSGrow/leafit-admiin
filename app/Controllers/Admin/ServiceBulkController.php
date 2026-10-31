@@ -101,6 +101,7 @@ class ServiceBulkController extends Admin
                 : [];
 
             $original_service['faqs'] = $this->normalizeFaqs($original_service['faqs'] ?? null);
+            $original_service['provider_ids'] = (new Service_model())->getProviderIdsForService((int) $service_id);
 
             $currentLanguage = get_current_language();
 

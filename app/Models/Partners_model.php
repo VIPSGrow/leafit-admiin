@@ -869,14 +869,20 @@ class Partners_model extends Model
 
 
             // Count only approved and active services for the provider
-            $total_services_of_providers = fetch_details('services', [
-                'user_id' => $row['partner_id'],
-                'at_store' => $row['at_store'],
-                'at_doorstep' => $row['at_doorstep'],
-                'status' => 1,  // Only active services
-                'approved_by_admin' => 1  // Only approved services
-            ], ['id']);
-            $tempRow['total_services'] = count($total_services_of_providers);
+            $assignedServices = \Config\Database::connect()->table('service_providers')
+                ->select('service_id')
+                ->where('provider_id', $row['partner_id'])
+                ->get()
+                ->getResultArray();
+            $serviceQuery = \Config\Database::connect()->table('services')
+                ->where('status', 1)
+                ->where('approved_by_admin', 1)
+                ->groupStart()
+                ->where('user_id', $row['partner_id']);
+            if (!empty($assignedServices)) {
+                $serviceQuery->orWhereIn('id', array_column($assignedServices, 'service_id'));
+            }
+            $tempRow['total_services'] = $serviceQuery->groupEnd()->countAllResults();
 
 
             if (check_partner_availibility($row['partner_id'])) {

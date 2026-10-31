@@ -4421,15 +4421,26 @@ function get_partner_ids(string $type = '', string $column_name = 'id', array $i
 {
     $db = \Config\Database::connect();
     if ($type == 'service') {
-        $builder = $db->table('services s');
-        $partners = $builder->select('s.user_id as id')
+        $partners = $db->table('services s')
+            ->select('s.user_id as id')
             ->whereIn('s.' . $column_name, $ids)
             ->get()->getResultArray();
+        $assignedPartners = $db->table('service_providers sp')
+            ->select('sp.provider_id as id')
+            ->whereIn('sp.service_id', $ids)
+            ->get()->getResultArray();
+        $partners = array_merge($partners, $assignedPartners);
     } else if ($type == 'category') {
-        $builder = $db->table('services s');
-        $partners = $builder->select('s.user_id as id')
+        $partners = $db->table('services s')
+            ->select('s.user_id as id')
             ->whereIN('s.' . $column_name, $ids)
             ->get()->getResultArray();
+        $assignedPartners = $db->table('service_providers sp')
+            ->select('sp.provider_id as id')
+            ->join('services s', 's.id = sp.service_id')
+            ->whereIn('s.' . $column_name, $ids)
+            ->get()->getResultArray();
+        $partners = array_merge($partners, $assignedPartners);
     } else {
         $builder = $db->table('users u');
         $partners = $builder->select($fields_name)
@@ -4440,9 +4451,11 @@ function get_partner_ids(string $type = '', string $column_name = 'id', array $i
     }
     $ids = [];
     foreach ($partners as $key => $parnter) {
-        $ids[] = $parnter['id'];
+        if (!empty($parnter['id'])) {
+            $ids[] = $parnter['id'];
+        }
     }
-    $ids = array_unique($ids);
+    $ids = array_values(array_unique($ids));
     if ($is_array == false) {
         $ids = implode(',', $ids);
     }

@@ -209,6 +209,7 @@ class ServiceController extends Admin
             $this->data['categories_name'] = get_categories_with_translated_names();
 
             $service = $this->service->where('id', $service_id)->first();
+            $service['provider_ids'] = $this->service->getProviderIdsForService((int) $service_id);
 
             $service['image'] = $this->fileService->exists('services', $service['image'] ?? null)
                 ? $this->fileService->url($service['image'], 'services')
@@ -427,6 +428,7 @@ class ServiceController extends Admin
             $this->seoService->cleanupForService($id);
             $this->serviceService->deleteServiceTranslations($id);
 
+            $this->db->table('service_providers')->delete(['service_id' => $id]);
             $builder = $this->db->table('services')->delete(['id' => $id]);
             $builder = $this->db->table('cart')->delete(['service_id' => $id]);
             $builder = $this->db->table('services_ratings')->delete(['service_id' => $id]);

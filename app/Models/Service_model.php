@@ -58,6 +58,210 @@ class Service_model extends Model
         $this->ionAuth = new \App\Libraries\CustomIonAuth();
     }
 
+    public function getProviderIdsForService(int $serviceId): array
+    {
+        $db = \Config\Database::connect();
+        $providerIds = $db->table('service_providers')
+            ->select('provider_id')
+            ->where('service_id', $serviceId)
+            ->get()
+            ->getResultArray();
+
+        if (!empty($providerIds)) {
+            return array_map('intval', array_column($providerIds, 'provider_id'));
+        }
+
+        $service = $db->table('services')
+            ->select('user_id')
+            ->where('id', $serviceId)
+            ->get()
+            ->getRowArray();
+
+        return !empty($service['user_id']) ? [(int) $service['user_id']] : [];
+    }
+
+    public function areApprovedProviders(array $providerIds): bool
+    {
+        $providerIds = array_values(array_unique(array_map('intval', $providerIds)));
+        if (empty($providerIds) || in_array(0, $providerIds, true)) {
+            return false;
+        }
+
+        $count = \Config\Database::connect()->table('partner_details')
+            ->whereIn('partner_id', $providerIds)
+            ->where('is_approved', '1')
+            ->countAllResults();
+
+        return $count === count($providerIds);
+    }
+
+    public function syncProviderAssignments(int $serviceId, array $providerIds): bool
+    {
+        $providerIds = array_values(array_unique(array_map('intval', $providerIds)));
+        if (!$this->areApprovedProviders($providerIds)) {
+            return false;
+        }
+
+        $db = \Config\Database::connect();
+        $db->table('service_providers')->where('service_id', $serviceId)->delete();
+
+        $assignments = array_map(
+            static fn (int $providerId): array => [
+                'service_id'  => $serviceId,
+                'provider_id' => $providerId,
+            ],
+            $providerIds
+        );
+
+        return $db->table('service_providers')->insertBatch($assignments) !== false;
+    }
+
+    public function getServiceIdsForProvider(int $providerId): array
+    {
+        $db = \Config\Database::connect();
+        $serviceIds = $db->table('services')
+            ->select('id')
+            ->where('user_id', $providerId)
+            ->get()
+            ->getResultArray();
+
+        $assignedServiceIds = $db->table('service_providers')
+            ->select('service_id')
+            ->where('provider_id', $providerId)
+            ->get()
+            ->getResultArray();
+
+        return array_values(array_unique(array_map(
+            'intval',
+            array_merge(array_column($serviceIds, 'id'), array_column($assignedServiceIds, 'service_id'))
+        )));
+    }
+
+    private function getServiceIdsForProviderIds(array $providerIds): array
+    {
+        if (empty($providerIds)) {
+            return [];
+        }
+
+        $rows = \Config\Database::connect()->table('service_providers')
+            ->select('service_id')
+            ->whereIn('provider_id', $providerIds)
+            ->get()
+            ->getResultArray();
+
+        return array_values(array_unique(array_map('intval', array_column($rows, 'service_id'))));
+    }
+
+    private function getProvidersForServices(array $serviceRows, array $additionalData): array
+    {
+        if (empty($serviceRows)) {
+            return [];
+        }
+
+        $db = \Config\Database::connect();
+        $serviceIds = array_map('intval', array_column($serviceRows, 'id'));
+        $assignments = $db->table('service_providers')
+            ->select('service_id, provider_id')
+            ->whereIn('service_id', $serviceIds)
+            ->get()
+            ->getResultArray();
+
+        $providerIdsByService = [];
+        $providerIds = [];
+        foreach ($assignments as $assignment) {
+            $serviceId = (int) $assignment['service_id'];
+            $providerId = (int) $assignment['provider_id'];
+            $providerIdsByService[$serviceId][] = $providerId;
+            $providerIds[] = $providerId;
+        }
+
+        foreach ($serviceRows as $serviceRow) {
+            $serviceId = (int) $serviceRow['id'];
+            if (empty($providerIdsByService[$serviceId]) && !empty($serviceRow['user_id'])) {
+                $providerId = (int) $serviceRow['user_id'];
+                $providerIdsByService[$serviceId][] = $providerId;
+                $providerIds[] = $providerId;
+            }
+        }
+
+        $providerIds = array_values(array_unique($providerIds));
+        if (empty($providerIds)) {
+            return [];
+        }
+
+        $currentLanguage = $db->escape(get_current_language());
+        $select = "
+            pd.partner_id as id,
+            pd.partner_id,
+            COALESCE(tpd.username, u.username) as username,
+            COALESCE(tpd.company_name, pd.company_name) as company_name,
+            pd.slug as provider_slug,
+            pd.address,
+            pd.max_serviceable_distance,
+            pd.at_store,
+            pd.at_doorstep,
+            pd.number_of_members,
+            pd.type,
+            pd.need_approval_for_the_service,
+            u.city,
+            u.latitude,
+            u.longitude
+        ";
+
+        $hasLocation = !empty($additionalData['latitude']) && !empty($additionalData['longitude']);
+        if ($hasLocation) {
+            $latitude = $additionalData['latitude'];
+            $longitude = $additionalData['longitude'];
+            $settings = get_settings('general_settings', true);
+            $maxDistance = get_max_serviceable_distance_condition(
+                $settings,
+                'pd.max_serviceable_distance',
+                $additionalData['max_serviceable_distance'] ?? 0
+            );
+            $distance = get_provider_distance_sql($latitude, $longitude, 'u.id', 'u.latitude', 'u.longitude');
+            $select .= ",
+                $distance as distance,
+                CAST(($distance) < $maxDistance AS CHAR) as is_Available_at_location
+            ";
+        } else {
+            $select .= ",
+                NULL as distance,
+                '0' as is_Available_at_location
+            ";
+        }
+
+        $providerRows = $db->table('partner_details pd')
+            ->select($select)
+            ->join('users u', 'u.id = pd.partner_id')
+            ->join(
+                'translated_partner_details tpd',
+                'tpd.partner_id = pd.partner_id AND tpd.language_code = "' . $currentLanguage . '"',
+                'left'
+            )
+            ->whereIn('pd.partner_id', $providerIds)
+            ->get()
+            ->getResultArray();
+
+        $providersById = [];
+        foreach ($providerRows as $providerRow) {
+            $providerRow['id'] = (int) $providerRow['id'];
+            $providerRow['partner_id'] = (int) $providerRow['partner_id'];
+            $providerRow['is_Available_at_location'] = (string) $providerRow['is_Available_at_location'];
+            $providersById[$providerRow['partner_id']] = $providerRow;
+        }
+
+        $providersByService = [];
+        foreach ($providerIdsByService as $serviceId => $assignedProviderIds) {
+            foreach (array_values(array_unique($assignedProviderIds)) as $providerId) {
+                if (isset($providersById[$providerId])) {
+                    $providersByService[$serviceId][] = $providersById[$providerId];
+                }
+            }
+        }
+
+        return $providersByService;
+    }
+
     public function list($from_app = false, $search = '', $limit = 10, $offset = 0, $sort = 'id', $order = 'ASC', $where = [], $additional_data = [], $column_name = '', $whereIn = [], $for_new_total = null, $at_store = null, $at_doorstep = null)
     {
         $fileService = service('fileService');
@@ -122,7 +326,12 @@ class Service_model extends Model
                     true
                 );
                 if (!empty($parnter_ids) && !isset($parnter_ids['error'])) {
-                    $builder->whereIn('s.user_id', $parnter_ids);
+                    $assignedServiceIds = $this->getServiceIdsForProviderIds($parnter_ids);
+                    $builder->groupStart()->whereIn('s.user_id', $parnter_ids);
+                    if (!empty($assignedServiceIds)) {
+                        $builder->orWhereIn('s.id', $assignedServiceIds);
+                    }
+                    $builder->groupEnd();
                 }
             }
 
@@ -188,7 +397,12 @@ class Service_model extends Model
                     true
                 );
                 if (!empty($parnter_ids) && !isset($parnter_ids['error'])) {
-                    $builder->whereIn('s.user_id', $parnter_ids);
+                    $assignedServiceIds = $this->getServiceIdsForProviderIds($parnter_ids);
+                    $builder->groupStart()->whereIn('s.user_id', $parnter_ids);
+                    if (!empty($assignedServiceIds)) {
+                        $builder->orWhereIn('s.id', $assignedServiceIds);
+                    }
+                    $builder->groupEnd();
                 }
             }
 
@@ -336,8 +550,21 @@ class Service_model extends Model
 
         // Process records
         $rows = [];
+        $providersByService = $from_app ? $this->getProvidersForServices($records, $additional_data) : [];
         foreach ($records as $row) {
             $tempRow = $this->processServiceRecord($row, $fileService, $from_app, $additional_data);
+            if ($from_app) {
+                $tempRow['providers'] = $providersByService[(int) $row['id']] ?? [];
+                if (!empty($tempRow['providers']) && isset($additional_data['latitude'], $additional_data['longitude'])) {
+                    $tempRow['is_Available_at_location'] = '0';
+                    foreach ($tempRow['providers'] as $provider) {
+                        if ($provider['is_Available_at_location'] === '1') {
+                            $tempRow['is_Available_at_location'] = '1';
+                            break;
+                        }
+                    }
+                }
+            }
             $rows[] = $tempRow;
         }
 

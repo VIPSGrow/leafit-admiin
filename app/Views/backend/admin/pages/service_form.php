@@ -297,11 +297,17 @@ foreach ($sorted_languages as $l) {
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label for="partner"
-                                    class="required"><?= labels('select_provider', 'Select Provider') ?></label>
-                                <select id="partner" class="form-control w-100 select2" name="partner" required>
-                                    <option value=""><?= labels('select_provider', 'Select Provider') ?></option>
+                                    class="required"><?= labels('select_providers', 'Select Providers') ?></label>
+                                <input type="hidden" name="partner" id="primary_partner"
+                                    value="<?= esc($val('user_id')) ?>">
+                                <select id="partner" class="form-control w-100 select2" name="providers[]" multiple
+                                    required data-placeholder="<?= esc(labels('select_providers', 'Select Providers')) ?>">
+                                    <?php
+                                    $selectedProviderIds = $service['provider_ids'] ?? (isset($service['user_id']) ? [$service['user_id']] : []);
+                                    $selectedProviderIds = array_map('intval', $selectedProviderIds);
+                                    ?>
                                     <?php foreach ($partner_name as $pn):
-                                        $selected = ($has_record && isset($service['user_id']) && $service['user_id'] == $pn['id']) ? 'selected' : '';
+                                        $selected = ($has_record && in_array((int) $pn['id'], $selectedProviderIds, true)) ? 'selected' : '';
                                         $display = isset($pn['display_company_name']) ? $pn['display_company_name'] : $pn['company_name'];
                                         ?>
                                         <option value="<?= $pn['id'] ?>" <?= $selected ?>
@@ -314,6 +320,7 @@ foreach ($sorted_languages as $l) {
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
+                                <small class="form-text text-muted"><?= labels('select_one_or_more_providers', 'Search and select one or more providers for this service.') ?></small>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -1107,8 +1114,18 @@ foreach ($sorted_languages as $l) {
 <script>
     $(document).ready(function () {
         function applyPartnerOptions() {
-            var $opt = $('#partner option:selected');
-            if (!$opt.length || !$opt.val()) return;
+            var $selectedOptions = $('#partner option:selected');
+            var primaryId = $('#primary_partner').val();
+            var $opt = $selectedOptions.filter(function () {
+                return this.value === primaryId;
+            }).first();
+
+            if (!$opt.length) {
+                $opt = $selectedOptions.first();
+            }
+
+            $('#primary_partner').val($opt.val() || '');
+            if (!$opt.length) return;
 
             var members = parseInt($opt.data('members'), 10);
             var partnerType = parseInt($opt.data('type'), 10); // 0 = individual, 1 = organization

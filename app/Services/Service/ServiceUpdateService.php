@@ -171,6 +171,18 @@ class ServiceUpdateService
         }
 
         $resolvedUserId = $userId ?: (int) $request->getPost('partner');
+        $providerIds = [];
+        if ($userId <= 0) {
+            $submittedProviderIds = $request->getPost('providers');
+            if ($submittedProviderIds === null) {
+                $submittedProviderIds = [$resolvedUserId];
+            }
+
+            $providerIds = $this->resolveProviderIds($submittedProviderIds, $resolvedUserId);
+            if ($providerIds === null || !$this->service->areApprovedProviders($providerIds)) {
+                return ['error' => true, 'message' => labels('please_select_approved_providers', 'Please select one or more approved providers')];
+            }
+        }
 
         $partner_data = $this->partner->where('partner_id', $resolvedUserId)->first();
         if (!empty($partner_data)) {
@@ -223,6 +235,11 @@ class ServiceUpdateService
             return ['error' => true, 'message' => 'Service cannot be saved!'];
         }
 
+        if ($userId <= 0 && !$this->service->syncProviderAssignments((int) $Service_id, $providerIds)) {
+            $this->db->transRollback();
+            return ['error' => true, 'message' => labels('error_occured', 'Error Occurred')];
+        }
+
         // Translations
         $postData = $request->getPost();
         $existingTranslationsResult = $this->serviceService->getServiceWithTranslations($Service_id);
@@ -254,6 +271,29 @@ class ServiceUpdateService
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
+
+    private function resolveProviderIds(mixed $submittedProviderIds, int $primaryProviderId): ?array
+    {
+        if (!is_array($submittedProviderIds) || empty($submittedProviderIds)) {
+            return null;
+        }
+
+        $providerIds = [];
+        foreach ($submittedProviderIds as $providerId) {
+            $validatedId = filter_var($providerId, FILTER_VALIDATE_INT);
+            if ($validatedId === false || $validatedId <= 0) {
+                return null;
+            }
+            $providerIds[] = $validatedId;
+        }
+
+        $providerIds = array_values(array_unique($providerIds));
+        if ($primaryProviderId <= 0 || !in_array($primaryProviderId, $providerIds, true)) {
+            return null;
+        }
+
+        return $providerIds;
+    }
 
     private function validateAndExtractDefaultLanguageFields(array $postData, string $defaultLanguage): array
     {

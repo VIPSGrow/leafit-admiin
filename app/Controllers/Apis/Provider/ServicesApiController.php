@@ -1072,6 +1072,7 @@ class ServicesApiController extends BaseController
                 // Clean up SEO settings and images before deleting service
                 $this->seoModel->cleanupSeoData($service_id, 'services');
 
+                $db->table('service_providers')->delete(['service_id' => $service_id]);
                 $builder = $db->table('services')->delete(['id' => $service_id, 'user_id' => $this->user_details['id']]);
                 $builder3 = $db->table('services_ratings')->delete(['service_id' => $service_id]);
                 if ($builder) {
