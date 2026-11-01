@@ -592,14 +592,15 @@ class OrdersApiController extends BaseController
                     $qty = (int) ($service['quantity'] ?? 1);
                     $currency_symbol = $currency;
 
-                    // Unit price (discounted or original); line net = unit price * qty
                     $unitPrice = ($discount_price > 0) ? $discount_price : $original_price;
-                    $line_net = $unitPrice * $qty;
                     $tax_percentage = (float) ($service['tax_percentage'] ?? $default_tax_percentage);
                     $tax_type = $service['tax_type'] ?? 'excluded';
-                    $line_tax = $tax_type === 'included'
-                        ? ($line_net - ($line_net / (1 + ($tax_percentage / 100))))
-                        : ($line_net * $tax_percentage / 100);
+                    $qty = max(1, $qty);
+                    $line_amount = $unitPrice * $qty;
+                    $line_tax = calculate_tax_amount($line_amount, $tax_percentage, $tax_type);
+                    $line_net = $tax_type === 'included'
+                        ? max(0, $line_amount - $line_tax)
+                        : $line_amount;
 
                     $sum_net_amount += $line_net;
                     $sum_tax_amount += $line_tax;
@@ -608,11 +609,16 @@ class OrdersApiController extends BaseController
                         'service_title' => ucwords($service['service_title']),
                         'price' => $currency_symbol . number_format($original_price, 2, '.', ''),
                         'discount' => ($discount_price == 0) ? $currency_symbol . "0.00" : $currency_symbol . number_format(($original_price - $discount_price), 2, '.', ''),
-                        'net_amount' => $currency_symbol . number_format($unitPrice, 2, '.', ''),
+                        'net_amount' => $currency_symbol . number_format($line_net / $qty, 2, '.', ''),
                         'tax' => number_format($tax_percentage, 2, '.', '') . '%',
                         'tax_amount' => $currency_symbol . number_format($line_tax, 2, '.', ''),
                         'quantity' => (string) $qty,
-                        'subtotal' => $currency_symbol . number_format($line_net + $line_tax, 2, '.', '')
+                        'subtotal' => $currency_symbol . number_format(
+                            $tax_type === 'included' ? $line_amount : $line_amount + $line_tax,
+                            2,
+                            '.',
+                            ''
+                        )
                     ];
                     $i++;
                 }
@@ -643,14 +649,16 @@ class OrdersApiController extends BaseController
                     foreach ($additional_charges as &$additional_charge) {
                         $charge_amount = (float) ($additional_charge['charge'] ?? 0);
                         $charge_rate = (float) ($additional_charge['tax_percentage'] ?? $additional_tax_rate);
-                        $charge_tax = $charge_amount * $charge_rate / 100;
+                        $charge_tax = calculate_tax_amount($charge_amount, $charge_rate, 'excluded');
                         $additional_charge['tax_percentage'] = $charge_rate;
                         $additional_charge['tax_amount'] = $charge_tax;
                         $additional_tax += $charge_tax;
                     }
                     unset($additional_charge);
                 }
-                $visiting_tax = $visiting_charges * $default_tax_percentage / 100;
+                $visiting_tax = $visiting_charges > 0
+                    ? calculate_tax_amount($visiting_charges, $default_tax_percentage, 'excluded')
+                    : 0;
                 $sum_tax_amount += $additional_tax;
                 $sum_tax_amount += $visiting_tax;
                 $this->data['order']['visiting_tax_percentage'] = $default_tax_percentage;

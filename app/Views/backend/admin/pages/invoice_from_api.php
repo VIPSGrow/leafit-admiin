@@ -327,9 +327,10 @@
             <?php foreach ($rows as $index => $row): ?>
                 <?php
                     $rowQuantity = max(1, (int) ($row['quantity'] ?? 1));
-                    $rowTaxableAmount = (float) str_replace([',', $currency], '', (string) ($row['net_amount'] ?? 0));
                     $rowTaxRate = (float) preg_replace('/[^0-9.]/', '', (string) ($row['tax'] ?? 0));
-                    $rowTaxAmount = $rowTaxableAmount * $rowQuantity * $rowTaxRate / 100;
+                    $rowTaxAmount = isset($row['tax_amount'])
+                        ? (float) str_replace([',', $currency], '', (string) $row['tax_amount'])
+                        : (float) str_replace([',', $currency], '', (string) ($row['net_amount'] ?? 0)) * $rowQuantity * $rowTaxRate / 100;
                 ?>
                 <tr>
                     <td class="center"><?= $index + 1 ?></td>

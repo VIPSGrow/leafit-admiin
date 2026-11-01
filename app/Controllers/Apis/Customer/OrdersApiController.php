@@ -1916,13 +1916,16 @@ class OrdersApiController extends BaseController
                     $qty = (int) ($service['quantity'] ?? 1);
                     $currency_symbol = $currency;
 
-                    // tax_amount is stored per unit; expand it to the invoice line quantity.
-                    $stored_tax = (float) ($service['tax_amount'] ?? 0);
-                    $line_tax = $stored_tax * $qty;
-
-                    // Unit price (discounted or original); line net = unit price * qty
                     $unitPrice = ($discount_price > 0) ? $discount_price : $original_price;
-                    $line_net = $unitPrice * $qty;
+                    $qty = max(1, $qty);
+                    $tax_percentage = (float) ($service['tax_percentage'] ?? 0);
+                    $tax_type = $service['tax_type'] ?? 'excluded';
+                    $line_amount = $unitPrice * $qty;
+                    $line_tax = calculate_tax_amount($line_amount, $tax_percentage, $tax_type);
+                    $line_net = $tax_type === 'included'
+                        ? max(0, $line_amount - $line_tax)
+                        : $line_amount;
+                    $unit_net_amount = $line_net / $qty;
 
                     $sum_net_amount += $line_net;
                     $sum_tax_amount += $line_tax;
@@ -1931,10 +1934,16 @@ class OrdersApiController extends BaseController
                         'service_title' => ucwords($service['service_title']),
                         'price' => $currency_symbol . number_format($original_price, 2, '.', ''),
                         'discount' => ($discount_price == 0) ? $currency_symbol . "0.00" : $currency_symbol . number_format(($original_price - $discount_price), 2, '.', ''),
-                        'net_amount' => $currency_symbol . number_format($unitPrice, 2, '.', ''),
-                        'tax' => ($service['tax_percentage'] ?? '') . '%',
+                        'net_amount' => $currency_symbol . number_format($unit_net_amount, 2, '.', ''),
+                        'quantity' => (string) $qty,
+                        'tax' => number_format($tax_percentage, 2, '.', '') . '%',
                         'tax_amount' => $currency_symbol . number_format($line_tax, 2, '.', ''),
-                        'subtotal' => $currency_symbol . number_format($service['sub_total'], 2, '.', '')
+                        'subtotal' => $currency_symbol . number_format(
+                            $tax_type === 'included' ? $line_amount : $line_amount + $line_tax,
+                            2,
+                            '.',
+                            ''
+                        )
                     ];
                     $i++;
                 }
@@ -1949,8 +1958,11 @@ class OrdersApiController extends BaseController
                 $this->data['order']['total'] = number_format($sum_net_amount, 2, '.', '');
                 $this->data['order']['invoice_no'] = $this->generateInvoiceNumber($orderDetails['id'], $orderDetails['created_at'] ?? null);
                 $this->data['order']['tax'] = number_format($sum_tax_amount, 2, '.', '');
-                $sub_total_incl_tax = $sum_net_amount + $sum_tax_amount;
                 $visiting_charges = (float) ($orderDetails['visiting_charges'] ?? 0);
+                $default_tax_percentage = (float) ($services[0]['tax_percentage'] ?? 0);
+                $visiting_tax = $visiting_charges > 0
+                    ? calculate_tax_amount($visiting_charges, $default_tax_percentage, 'excluded')
+                    : 0;
                 $additional_total = 0;
                 if (is_array($additional_charges) && !empty($additional_charges)) {
                     foreach ($additional_charges as $additional_charge) {
@@ -1966,11 +1978,14 @@ class OrdersApiController extends BaseController
                     }
                 }
                 if ($additional_total > 0 && $additional_tax == 0 && !empty($orderDetails['final_total'])) {
-                    $additional_tax = max(0, (float) $orderDetails['final_total'] - $sum_net_amount - $sum_tax_amount - $visiting_charges - $additional_total + (float) ($orderDetails['promo_discount'] ?? 0));
+                    $additional_tax = max(0, (float) $orderDetails['final_total'] - $sum_net_amount - $sum_tax_amount - $visiting_charges - $visiting_tax - $additional_total + (float) ($orderDetails['promo_discount'] ?? 0));
                 }
                 $sum_tax_amount += $additional_tax;
+                $sum_tax_amount += $visiting_tax;
                 $sub_total_incl_tax = $sum_net_amount + $sum_tax_amount;
                 $this->data['order']['tax'] = number_format($sum_tax_amount, 2, '.', '');
+                $this->data['order']['visiting_tax_percentage'] = $default_tax_percentage;
+                $this->data['order']['visiting_tax'] = number_format($visiting_tax, 2, '.', '');
                 if ($additional_total > 0 && empty($additional_charges)) {
                     $additional_charges = [['name' => 'Additional charge', 'charge' => $additional_total, 'tax_amount' => $additional_tax]];
                 }
