@@ -468,7 +468,13 @@ class ProviderDetailsController extends Admin
             $order = (isset($_GET['order']) && !empty($_GET['order'])) ? $_GET['order'] : 'ASC';
             $search = (isset($_GET['search']) && !empty($_GET['search'])) ? $_GET['search'] : '';
             $service_model = new Service_model();
-            $where['s.user_id'] = $uri->getSegments()[3];
+            $partner_id = (int) $uri->getSegments()[3];
+            $providerServiceIds = $service_model->getServiceIdsForProvider($partner_id);
+            if (!empty($providerServiceIds)) {
+                $where = '(s.user_id = ' . $partner_id . ' OR s.id IN (' . implode(',', $providerServiceIds) . '))';
+            } else {
+                $where = 's.user_id = ' . $partner_id . ' ';
+            }
             $services = $service_model->list(false, $search, $limit, $offset, $sort, $order, $where);
             return ($services);
         } catch (\Exception $th) {
@@ -549,7 +555,9 @@ class ProviderDetailsController extends Admin
                 ->join('partner_details pd', 'o.partner_id = pd.partner_id')
                 ->where(['o.partner_id' => $id])
                 ->get()->getResultArray();
-            $total_services = $db->table('services s')->select('count(s.id) as `total`')->where(['user_id' => $id])->get()->getResultArray()[0]['total'];
+            $service_model = new Service_model();
+            $providerServiceIds = $service_model->getServiceIdsForProvider((int) $id);
+            $total_services = count($providerServiceIds);
             $total_balance = unsettled_commision($id);
             $total_promocodes = $db->table('promo_codes p')->select('count(p.id) as `total`')->where(['partner_id' => $id])->get()->getResultArray()[0]['total'];
             $provider_total_earning_chart = provider_total_earning_chart($id);

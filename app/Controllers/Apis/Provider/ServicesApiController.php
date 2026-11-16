@@ -71,7 +71,13 @@ class ServicesApiController extends BaseController
                     'max_serviceable_distance' => $settings['max_serviceable_distance'],
                 ];
             }
-            $where = 's.user_id = ' . $this->user_details['id'] . ' ';
+            $provider_id = (int) $this->user_details['id'];
+            $providerServiceIds = $Service_model->getServiceIdsForProvider($provider_id);
+            if (!empty($providerServiceIds)) {
+                $where = ' (s.user_id = ' . $provider_id . ' OR s.id IN (' . implode(',', $providerServiceIds) . ')) ';
+            } else {
+                $where = 's.user_id = ' . $provider_id . ' ';
+            }
 
             // If service_id is provided, filter by that specific service
             $service_id = $this->request->getPost('service_id');
