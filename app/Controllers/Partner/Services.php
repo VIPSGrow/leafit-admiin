@@ -66,7 +66,12 @@ class Services extends Partner
         }
 
         $serviceId = (int) service('uri')->getSegments()[3];
-        $service = fetch_details('services', ['id' => $serviceId, 'user_id' => $this->userId])[0] ?? null;
+        $providerServiceIds = $this->service->getServiceIdsForProvider((int) $this->userId);
+        if (!in_array($serviceId, $providerServiceIds, true)) {
+            return redirect('partner/services');
+        }
+
+        $service = fetch_details('services', ['id' => $serviceId])[0] ?? null;
         if (empty($service)) {
             return redirect('partner/services');
         }
@@ -175,9 +180,12 @@ class Services extends Partner
             $search = '';
         }
         $service_model = new Service_model();
-        $where['s.user_id'] = $_SESSION['user_id'];
-        $services = $service_model->list(false, $search, $limit, $offset, $sort, $order, $where);
-        return $services;
+        $serviceIds = $service_model->getServiceIdsForProvider((int) $this->userId);
+        if (empty($serviceIds)) {
+            return json_encode(['rows' => [], 'total' => 0]);
+        }
+
+        return $service_model->list(false, $search, $limit, $offset, $sort, $order, [], [], 's.id', $serviceIds);
     }
     public function update_service()
     {

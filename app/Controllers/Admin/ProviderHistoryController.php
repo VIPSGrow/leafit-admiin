@@ -36,6 +36,11 @@ class ProviderHistoryController extends Admin
             return $this->response->setStatusCode(403)->setJSON(['error' => true, 'message' => 'Unauthorized']);
         }
 
+        $dateRange = $this->getProviderLedgerDateRange();
+        if ($dateRange === null) {
+            return $this->response->setStatusCode(400)->setJSON(['error' => true, 'message' => 'Invalid date range.']);
+        }
+
         $provider = $this->db->table('users u')
             ->select('u.id, u.username, u.email, u.phone, u.balance, u.payable_commision, pd.company_name, pd.admin_commission')
             ->join('partner_details pd', 'pd.partner_id = u.id', 'inner')
@@ -61,7 +66,8 @@ class ProviderHistoryController extends Admin
                 'count' => (int) ($pending['count'] ?? 0),
                 'amount' => (float) ($pending['amount'] ?? 0),
             ],
-            'bookings' => $this->getProviderBookingSummary($providerId),
+            'commission_percentage' => (float) ($provider['admin_commission'] ?? 0),
+            'bookings' => $this->getProviderBookingSummary($providerId, $dateRange['from'], $dateRange['to'], (float) ($provider['admin_commission'] ?? 0)),
         ]);
     }
 
@@ -72,18 +78,30 @@ class ProviderHistoryController extends Admin
             return $this->response->setStatusCode(403)->setJSON(['error' => true, 'message' => 'Unauthorized']);
         }
 
+        $dateRange = $this->getProviderLedgerDateRange();
+        if ($dateRange === null) {
+            return $this->response->setStatusCode(400)->setJSON(['error' => true, 'message' => 'Invalid date range.']);
+        }
+
         $limit = max(1, (int) ($this->request->getGet('limit') ?: 10));
         $offset = max(0, (int) ($this->request->getGet('offset') ?: 0));
         $search = trim((string) ($this->request->getGet('search') ?: ''));
         $settlementModel = new Settlement_CashCollection_history_model();
         $settlementResponse = json_decode($settlementModel->list(
-            ['sc.provider_id' => $providerId], 'no', false, 10000, 0, 'id', 'DESC', $search
+            ['sc.provider_id' => $providerId], 'no', false, 10000, 0, 'id', 'DESC', $search, $dateRange['from'], $dateRange['to'], false
         ), true) ?: ['rows' => []];
 
         $bookingBuilder = $this->db->table('orders o')
-            ->select('o.id, o.status, o.payment_method, o.payment_status, o.total, o.final_total, o.partner_earnings, o.admin_earnings, o.date_of_service, o.created_at')
+            ->select('o.id, o.status, o.payment_method, o.payment_status, o.final_total, o.date_of_service, o.total_additional_charge, o.payment_status_of_additional_charge, o.payment_method_of_additional_charge, o.isRefunded, pd.admin_commission')
+            ->join('partner_details pd', 'pd.partner_id = o.partner_id', 'left')
             ->where('o.partner_id', $providerId)
             ->where('o.parent_id', null);
+        if ($dateRange['from'] !== '') {
+            $bookingBuilder->where('o.date_of_service >=', $dateRange['from']);
+        }
+        if ($dateRange['to'] !== '') {
+            $bookingBuilder->where('o.date_of_service <=', $dateRange['to']);
+        }
         if ($search !== '') {
             $bookingBuilder->groupStart()
                 ->like('o.id', $search)
@@ -96,14 +114,38 @@ class ProviderHistoryController extends Admin
         foreach ($bookingRows as $booking) {
             $status = (string) ($booking['status'] ?? 'pending');
             $paymentStatus = (string) ($booking['payment_status'] ?: 'pending');
+            $isRefunded = (string) ($booking['isRefunded'] ?? '0') === '1';
+            $isCompleted = $status === 'completed' && !$isRefunded;
+            $baseAmount = (float) ($booking['final_total'] ?? 0);
+            $isBasePaid = !$isRefunded && (string) ($booking['payment_status'] ?? '') === '1';
+            $additionalAmount = (float) ($booking['total_additional_charge'] ?? 0);
+            $isAdditionalPaid = !$isRefunded && (string) ($booking['payment_status_of_additional_charge'] ?? '') === '1';
+            $additionalPaymentMethod = strtolower((string) ($booking['payment_method_of_additional_charge'] ?? ''));
+            if ($additionalPaymentMethod === '') {
+                $additionalPaymentMethod = strtolower((string) ($booking['payment_method'] ?? ''));
+            }
+            $onlineAmount = $isBasePaid && strtolower((string) ($booking['payment_method'] ?? '')) !== 'cod' ? $baseAmount : 0;
+            $cashAmount = $isBasePaid && strtolower((string) ($booking['payment_method'] ?? '')) === 'cod' ? $baseAmount : 0;
+            if ($isAdditionalPaid && $additionalAmount > 0) {
+                if ($additionalPaymentMethod === 'cod') {
+                    $cashAmount += $additionalAmount;
+                } else {
+                    $onlineAmount += $additionalAmount;
+                }
+            }
+            $grossAmount = $baseAmount + $additionalAmount;
+            $commissionableAmount = $isCompleted ? $baseAmount + ($isAdditionalPaid ? $additionalAmount : 0) : 0;
+            $commissionAmount = $commissionableAmount * (float) ($booking['admin_commission'] ?? 0) / 100;
             $rows[] = [
                 'id' => 'B-' . (int) $booking['id'],
                 'message' => 'Booking #' . (int) $booking['id'] . ' (' . ucfirst(str_replace('_', ' ', $booking['payment_method'] ?? '')) . ')',
                 'type_badge' => '<span class="badge badge-info">Booking Payment</span>',
                 'date' => !empty($booking['date_of_service']) ? format_date($booking['date_of_service'], 'd-m-Y') : '',
-                'total_amount' => $booking['total'] ?? 0,
-                'amount' => $booking['final_total'] ?? 0,
-                'commission_amount' => $booking['admin_earnings'] ?? 0,
+                'total_amount' => $grossAmount,
+                'amount' => $grossAmount,
+                'online_amount' => $onlineAmount,
+                'cash_amount' => $cashAmount,
+                'commission_amount' => $commissionAmount,
                 'status_badge' => '<span class="badge badge-' . ($status === 'completed' ? 'success' : ($status === 'cancelled' ? 'danger' : 'warning')) . '">' . esc(ucfirst(str_replace('_', ' ', $status))) . '</span>',
                 'payment_status' => ucfirst($paymentStatus),
                 '_sort_id' => (int) $booking['id'],
@@ -122,20 +164,83 @@ class ProviderHistoryController extends Admin
         ]);
     }
 
-    private function getProviderBookingSummary(int $providerId): array
+    private function getProviderBookingSummary(int $providerId, string $dateFrom, string $dateTo, float $commissionPercentage): array
     {
-        $summary = $this->db->table('orders')
-            ->select("COUNT(id) as total, SUM(CASE WHEN status NOT IN ('completed', 'cancelled') THEN 1 ELSE 0 END) as pending, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled", false)
+        $builder = $this->db->table('orders')
+            ->select("
+                COUNT(id) as total,
+                SUM(CASE WHEN status NOT IN ('completed', 'cancelled') THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 THEN COALESCE(final_total, 0) ELSE 0 END) as base_total,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status_of_additional_charge = '1' THEN COALESCE(total_additional_charge, 0) ELSE 0 END) as addon_total,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status = '1' AND LOWER(COALESCE(payment_method, '')) <> 'cod' THEN COALESCE(final_total, 0) ELSE 0 END) as online_base,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status = '1' AND LOWER(COALESCE(payment_method, '')) = 'cod' THEN COALESCE(final_total, 0) ELSE 0 END) as cash_base,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status_of_additional_charge = '1' AND COALESCE(NULLIF(LOWER(TRIM(payment_method_of_additional_charge)), ''), LOWER(COALESCE(payment_method, '')), '') <> 'cod' THEN COALESCE(total_additional_charge, 0) ELSE 0 END) as online_addons,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status_of_additional_charge = '1' AND COALESCE(NULLIF(LOWER(TRIM(payment_method_of_additional_charge)), ''), LOWER(COALESCE(payment_method, '')), '') = 'cod' THEN COALESCE(total_additional_charge, 0) ELSE 0 END) as cash_addons
+            ", false)
             ->where('partner_id', $providerId)
-            ->where('parent_id', null)
-            ->get()->getRowArray();
+            ->where('parent_id', null);
+        if ($dateFrom !== '') {
+            $builder->where('date_of_service >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $builder->where('date_of_service <=', $dateTo);
+        }
+        $summary = $builder->get()->getRowArray() ?? [];
+
+        $cashSettlementsBuilder = $this->db->table('settlement_cashcollection_history')
+            ->select('COALESCE(SUM(amount), 0) as amount')
+            ->where('provider_id', $providerId)
+            ->where('type', 'cash_collection_by_admin');
+        if ($dateFrom !== '') {
+            $cashSettlementsBuilder->where('date >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $cashSettlementsBuilder->where('date <=', $dateTo);
+        }
+        $adminCashReceived = (float) ($cashSettlementsBuilder->get()->getRowArray()['amount'] ?? 0);
+
+        $grossTotal = (float) ($summary['base_total'] ?? 0) + (float) ($summary['addon_total'] ?? 0);
+        $onlineReceived = (float) ($summary['online_base'] ?? 0) + (float) ($summary['online_addons'] ?? 0);
+        $cashCollected = (float) ($summary['cash_base'] ?? 0) + (float) ($summary['cash_addons'] ?? 0);
+        $commissionTotal = $grossTotal * $commissionPercentage / 100;
+        $adminReceived = $onlineReceived + $adminCashReceived;
 
         return [
             'total' => (int) ($summary['total'] ?? 0),
             'pending' => (int) ($summary['pending'] ?? 0),
             'completed' => (int) ($summary['completed'] ?? 0),
             'cancelled' => (int) ($summary['cancelled'] ?? 0),
+            'gross_total' => $grossTotal,
+            'online_received' => $onlineReceived,
+            'cash_collected' => $cashCollected,
+            'admin_cash_received' => $adminCashReceived,
+            'commission_total' => $commissionTotal,
+            'provider_net' => $grossTotal - $commissionTotal,
+            'settlement_due' => max(0, $commissionTotal - $adminReceived),
         ];
+    }
+
+    private function getProviderLedgerDateRange(): ?array
+    {
+        $dateFrom = trim((string) ($this->request->getGet('date_from') ?? ''));
+        $dateTo = trim((string) ($this->request->getGet('date_to') ?? ''));
+
+        foreach ([$dateFrom, $dateTo] as $date) {
+            if ($date !== '') {
+                $parsedDate = \DateTime::createFromFormat('!Y-m-d', $date);
+                if (!$parsedDate || $parsedDate->format('Y-m-d') !== $date) {
+                    return null;
+                }
+            }
+        }
+
+        if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
+            return null;
+        }
+
+        return ['from' => $dateFrom, 'to' => $dateTo];
     }
 
     public function partner_settlement_and_cash_collection_history()

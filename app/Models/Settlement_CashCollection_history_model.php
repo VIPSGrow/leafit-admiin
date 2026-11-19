@@ -6,7 +6,7 @@ use CodeIgniter\Model;
 
 class Settlement_CashCollection_history_model extends Model
 {
-    public function list($where, $is_admin_panel, $from_app = false, $limit = 10, $offset = 0, $sort = 'id', $order = 'DESC', $search = '')
+    public function list($where, $is_admin_panel, $from_app = false, $limit = 10, $offset = 0, $sort = 'id', $order = 'DESC', $search = '', $dateFrom = '', $dateTo = '', $useRequestParams = true)
     {
         $db      = \Config\Database::connect();
         $builder = $db->table('settlement_cashcollection_history sc');
@@ -36,20 +36,23 @@ class Settlement_CashCollection_history_model extends Model
             $multipleWhere['tpd_current.company_name'] = $search;
             $multipleWhere['tpd_default.company_name'] = $search;
         }
-        if (isset($_GET['offset']))
-            $offset = $_GET['offset'];
-        if (isset($_GET['limit'])) {
-            $limit = $_GET['limit'];
-        }
-        if (isset($_GET['sort'])) {
-            if ($_GET['sort'] == 'pc.id') {
-                $sort = "sc.id";
-            } else {
-                $sort = $_GET['sort'];
+        if ($useRequestParams) {
+            if (isset($_GET['offset'])) {
+                $offset = $_GET['offset'];
             }
-        }
-        if (isset($_GET['order'])) {
-            $order = $_GET['order'];
+            if (isset($_GET['limit'])) {
+                $limit = $_GET['limit'];
+            }
+            if (isset($_GET['sort'])) {
+                if ($_GET['sort'] == 'pc.id') {
+                    $sort = "sc.id";
+                } else {
+                    $sort = $_GET['sort'];
+                }
+            }
+            if (isset($_GET['order'])) {
+                $order = $_GET['order'];
+            }
         }
 
         // Count query with translation joins for accurate search results
@@ -64,6 +67,12 @@ class Settlement_CashCollection_history_model extends Model
 
         if (isset($where) && !empty($where)) {
             $countBuilder->where($where);
+        }
+        if ($dateFrom !== '') {
+            $countBuilder->where('sc.date >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $countBuilder->where('sc.date <=', $dateTo);
         }
         if (isset($multipleWhere) && !empty($multipleWhere)) {
             $countBuilder->groupStart();
@@ -94,6 +103,12 @@ class Settlement_CashCollection_history_model extends Model
 
         if (isset($where) && !empty($where)) {
             $builder->where($where);
+        }
+        if ($dateFrom !== '') {
+            $builder->where('sc.date >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $builder->where('sc.date <=', $dateTo);
         }
         if (isset($multipleWhere) && !empty($multipleWhere)) {
             $builder->groupStart();

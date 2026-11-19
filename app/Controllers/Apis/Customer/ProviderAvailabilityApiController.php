@@ -252,6 +252,30 @@ class ProviderAvailabilityApiController extends BaseController
     public function provider_check_availability()
     {
         try {
+            if ($this->request->getPost('is_checkout_process') == '1') {
+                $validation = \Config\Services::validation();
+                $validation->setRules([
+                    'latitude' => 'required|numeric|greater_than_equal_to[-90]|less_than_equal_to[90]',
+                    'longitude' => 'required|numeric|greater_than_equal_to[-180]|less_than_equal_to[180]',
+                ], [
+                    'latitude.required' => labels(LATITUDE_IS_REQUIRED, 'Latitude is required'),
+                    'latitude.numeric' => labels(LATITUDE_MUST_BE_A_NUMBER, 'Latitude must be a number'),
+                    'latitude.greater_than_equal_to' => labels(LATITUDE_MUST_BE_GREATER_THAN_OR_EQUAL_TO, 'Latitude must be greater than or equal to -90'),
+                    'latitude.less_than_equal_to' => labels(LATITUDE_MUST_BE_LESS_THAN_OR_EQUAL_TO, 'Latitude must be less than or equal to 90'),
+                    'longitude.required' => labels(LONGITUDE_IS_REQUIRED, 'Longitude is required'),
+                    'longitude.numeric' => labels(LONGITUDE_MUST_BE_A_NUMBER, 'Longitude must be a number'),
+                    'longitude.greater_than_equal_to' => labels(LONGITUDE_MUST_BE_GREATER_THAN_OR_EQUAL_TO, 'Longitude must be greater than or equal to -180'),
+                    'longitude.less_than_equal_to' => labels(LONGITUDE_MUST_BE_LESS_THAN_OR_EQUAL_TO, 'Longitude must be less than or equal to 180'),
+                ]);
+                if (!$validation->withRequest($this->request)->run()) {
+                    $errors = $validation->getErrors();
+                    return $this->response->setJSON([
+                        'error' => true,
+                        'message' => (string) reset($errors),
+                    ]);
+                }
+            }
+
             $db = \Config\Database::connect();
             $customer_latitude = $this->request->getPost('latitude');
             $customer_longitude = $this->request->getPost('longitude');
