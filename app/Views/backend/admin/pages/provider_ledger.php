@@ -59,6 +59,7 @@
                         <table class="table table-hover" id="provider_ledger_list" data-toggle="table" data-side-pagination="server" data-pagination="true" data-page-list="[5, 10, 25, 50, 100]" data-search="false" data-show-refresh="false" data-sort-name="id" data-sort-order="desc" data-query-params="providerLedgerQueryParams">
                             <thead><tr>
                                 <th data-field="id" data-sortable="true"><?= labels('id', 'ID') ?></th>
+                                <th data-field="order_id" data-formatter="providerLedgerOrderIdFormatter"><?= labels('order_id', 'Order ID') ?></th>
                                 <th data-field="message"><?= labels('message', 'Message') ?></th>
                                 <th data-field="type_badge"><?= labels('type', 'Ledger Type') ?></th>
                                 <th data-field="date" data-sortable="true"><?= labels('date', 'Date') ?></th>
@@ -97,6 +98,17 @@
             date_from: providerLedgerDateRange.date_from,
             date_to: providerLedgerDateRange.date_to
         };
+    }
+
+    function providerLedgerOrderIdFormatter(value, row, index) {
+        if (!value) {
+            return '<span class="text-muted">-</span>';
+        }
+        var orderNum = parseInt(value);
+        if (isNaN(orderNum)) {
+            return value.toString();
+        }
+        return '<a href="' + "<?= base_url() ?>" + '/admin/orders/veiw_orders/' + orderNum + '" target="_blank" class="text-primary" style="text-decoration: underline;">Order #' + orderNum + '</a>';
     }
 
     function providerLedgerLoad() {

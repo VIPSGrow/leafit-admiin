@@ -92,7 +92,8 @@ class ProviderHistoryController extends Admin
         ), true) ?: ['rows' => []];
 
         $bookingBuilder = $this->db->table('orders o')
-            ->select('o.id, o.status, o.payment_method, o.payment_status, o.final_total, o.date_of_service, o.total_additional_charge, o.payment_status_of_additional_charge, o.payment_method_of_additional_charge, o.isRefunded, pd.admin_commission')
+            ->select('o.id, o.status, o.payment_method, o.payment_status, o.final_total, o.date_of_service, o.total_additional_charge, o.payment_status_of_additional_charge, o.payment_method_of_additional_charge, o.isRefunded, pd.admin_commission, o.additional_charges,
+                (SELECT COALESCE(SUM(os.tax_amount * os.quantity), 0) FROM order_services os WHERE os.order_id = o.id) as tax_amount')
             ->join('partner_details pd', 'pd.partner_id = o.partner_id', 'left')
             ->where('o.partner_id', $providerId)
             ->where('o.parent_id', null);
@@ -116,28 +117,16 @@ class ProviderHistoryController extends Admin
             $paymentStatus = (string) ($booking['payment_status'] ?: 'pending');
             $isRefunded = (string) ($booking['isRefunded'] ?? '0') === '1';
             $isCompleted = $status === 'completed' && !$isRefunded;
-            $baseAmount = (float) ($booking['final_total'] ?? 0);
+            $baseAmount = round((float) ($booking['final_total'] ?? 0) - round((float) ($booking['tax_amount'] ?? 0), 2) - $this->getAdditionalChargesTax($booking['additional_charges'] ?? null), 2);
             $isBasePaid = !$isRefunded && (string) ($booking['payment_status'] ?? '') === '1';
-            $additionalAmount = (float) ($booking['total_additional_charge'] ?? 0);
-            $isAdditionalPaid = !$isRefunded && (string) ($booking['payment_status_of_additional_charge'] ?? '') === '1';
-            $additionalPaymentMethod = strtolower((string) ($booking['payment_method_of_additional_charge'] ?? ''));
-            if ($additionalPaymentMethod === '') {
-                $additionalPaymentMethod = strtolower((string) ($booking['payment_method'] ?? ''));
-            }
             $onlineAmount = $isBasePaid && strtolower((string) ($booking['payment_method'] ?? '')) !== 'cod' ? $baseAmount : 0;
             $cashAmount = $isBasePaid && strtolower((string) ($booking['payment_method'] ?? '')) === 'cod' ? $baseAmount : 0;
-            if ($isAdditionalPaid && $additionalAmount > 0) {
-                if ($additionalPaymentMethod === 'cod') {
-                    $cashAmount += $additionalAmount;
-                } else {
-                    $onlineAmount += $additionalAmount;
-                }
-            }
-            $grossAmount = $baseAmount + $additionalAmount;
-            $commissionableAmount = $isCompleted ? $baseAmount + ($isAdditionalPaid ? $additionalAmount : 0) : 0;
-            $commissionAmount = $commissionableAmount * (float) ($booking['admin_commission'] ?? 0) / 100;
+            $grossAmount = $baseAmount;
+            $commissionableAmount = $isCompleted ? $baseAmount : 0;
+            $commissionAmount = round($commissionableAmount * (float) ($booking['admin_commission'] ?? 0) / 100, 2);
             $rows[] = [
                 'id' => 'B-' . (int) $booking['id'],
+                'order_id' => (int) $booking['id'],
                 'message' => 'Booking #' . (int) $booking['id'] . ' (' . ucfirst(str_replace('_', ' ', $booking['payment_method'] ?? '')) . ')',
                 'type_badge' => '<span class="badge badge-info">Booking Payment</span>',
                 'date' => !empty($booking['date_of_service']) ? format_date($booking['date_of_service'], 'd-m-Y') : '',
@@ -172,13 +161,14 @@ class ProviderHistoryController extends Admin
                 SUM(CASE WHEN status NOT IN ('completed', 'cancelled') THEN 1 ELSE 0 END) as pending,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
                 SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
-                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 THEN COALESCE(final_total, 0) ELSE 0 END) as base_total,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 THEN COALESCE(final_total, 0) - COALESCE(os_tax.tax, 0) ELSE 0 END) as base_total,
                 SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status_of_additional_charge = '1' THEN COALESCE(total_additional_charge, 0) ELSE 0 END) as addon_total,
-                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status = '1' AND LOWER(COALESCE(payment_method, '')) <> 'cod' THEN COALESCE(final_total, 0) ELSE 0 END) as online_base,
-                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status = '1' AND LOWER(COALESCE(payment_method, '')) = 'cod' THEN COALESCE(final_total, 0) ELSE 0 END) as cash_base,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status = '1' AND LOWER(COALESCE(payment_method, '')) <> 'cod' THEN COALESCE(final_total, 0) - COALESCE(os_tax.tax, 0) ELSE 0 END) as online_base,
+                SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status = '1' AND LOWER(COALESCE(payment_method, '')) = 'cod' THEN COALESCE(final_total, 0) - COALESCE(os_tax.tax, 0) ELSE 0 END) as cash_base,
                 SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status_of_additional_charge = '1' AND COALESCE(NULLIF(LOWER(TRIM(payment_method_of_additional_charge)), ''), LOWER(COALESCE(payment_method, '')), '') <> 'cod' THEN COALESCE(total_additional_charge, 0) ELSE 0 END) as online_addons,
                 SUM(CASE WHEN status = 'completed' AND COALESCE(isRefunded, 0) = 0 AND payment_status_of_additional_charge = '1' AND COALESCE(NULLIF(LOWER(TRIM(payment_method_of_additional_charge)), ''), LOWER(COALESCE(payment_method, '')), '') = 'cod' THEN COALESCE(total_additional_charge, 0) ELSE 0 END) as cash_addons
             ", false)
+            ->join('(SELECT order_id, COALESCE(SUM(tax_amount * quantity), 0) as tax FROM order_services GROUP BY order_id) os_tax', 'os_tax.order_id = orders.id', 'left')
             ->where('partner_id', $providerId)
             ->where('parent_id', null);
         if ($dateFrom !== '') {
@@ -201,9 +191,40 @@ class ProviderHistoryController extends Admin
         }
         $adminCashReceived = (float) ($cashSettlementsBuilder->get()->getRowArray()['amount'] ?? 0);
 
-        $grossTotal = (float) ($summary['base_total'] ?? 0) + (float) ($summary['addon_total'] ?? 0);
-        $onlineReceived = (float) ($summary['online_base'] ?? 0) + (float) ($summary['online_addons'] ?? 0);
-        $cashCollected = (float) ($summary['cash_base'] ?? 0) + (float) ($summary['cash_addons'] ?? 0);
+        // Subtract tax from additional_charges JSON (not captured in order_services tax)
+        $additionalTaxBuilder = $this->db->table('orders')
+            ->select('additional_charges, payment_method')
+            ->where('partner_id', $providerId)
+            ->where('parent_id', null)
+            ->where('status', 'completed')
+            ->where('isRefunded', 0);
+        if ($dateFrom !== '') {
+            $additionalTaxBuilder->where('date_of_service >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $additionalTaxBuilder->where('date_of_service <=', $dateTo);
+        }
+        $additionalChargeRows = $additionalTaxBuilder->get()->getResultArray();
+        $totalAdditionalTax = 0.0;
+        $onlineAdditionalTax = 0.0;
+        $cashAdditionalTax = 0.0;
+        foreach ($additionalChargeRows as $ar) {
+            $charges = json_decode($ar['additional_charges'] ?? '[]', true) ?? [];
+            $tax = 0.0;
+            foreach ($charges as $charge) {
+                $tax += (float) ($charge['tax_amount'] ?? 0);
+            }
+            $totalAdditionalTax += $tax;
+            if (strtolower((string) ($ar['payment_method'] ?? '')) !== 'cod') {
+                $onlineAdditionalTax += $tax;
+            } else {
+                $cashAdditionalTax += $tax;
+            }
+        }
+
+        $grossTotal = (float) ($summary['base_total'] ?? 0) - round($totalAdditionalTax, 2);
+        $onlineReceived = (float) ($summary['online_base'] ?? 0) - round($onlineAdditionalTax, 2);
+        $cashCollected = (float) ($summary['cash_base'] ?? 0) - round($cashAdditionalTax, 2);
         $commissionTotal = $grossTotal * $commissionPercentage / 100;
         $adminReceived = $onlineReceived + $adminCashReceived;
 
@@ -241,6 +262,19 @@ class ProviderHistoryController extends Admin
         }
 
         return ['from' => $dateFrom, 'to' => $dateTo];
+    }
+
+    private function getAdditionalChargesTax(?string $additionalChargesJson): float
+    {
+        if (empty($additionalChargesJson)) {
+            return 0.0;
+        }
+        $charges = json_decode($additionalChargesJson, true) ?? [];
+        $taxTotal = 0.0;
+        foreach ($charges as $charge) {
+            $taxTotal += (float) ($charge['tax_amount'] ?? 0);
+        }
+        return round($taxTotal, 2);
     }
 
     public function partner_settlement_and_cash_collection_history()

@@ -696,9 +696,9 @@ function validate_status($order_id, $status, $date = '', $selected_time = "", $o
                         $user_details = fetch_details('users', ['id' => $order_details[0]['partner_id']]);
                         $admin_commission_percentage = get_admin_commision($order_details[0]['partner_id']);
                         $admin_commission_amount = intval($admin_commission_percentage) / 100;
-                        $total = $order_details[0]['final_total'];
+                        $total = $order_details[0]['total'];
                         $commision = intval($total) * $admin_commission_amount;
-                        $unsettled_amount = $total - $commision;
+                        $unsettled_amount = $order_details[0]['final_total'] - $commision;
                         $current_admin_commission = $user_details[0]['admin_commission'];
 
                         update_details(["balance" => ($user_details[0]['balance'] + $unsettled_amount), 'admin_commission' => ($current_admin_commission + $commision)], ["id" => $order_details[0]['partner_id']], "users");
@@ -750,7 +750,7 @@ function validate_status($order_id, $status, $date = '', $selected_time = "", $o
                     if (($order_details[0]['payment_method']) == "cod") {
                         $admin_commission_percentage = get_admin_commision($order_details[0]['partner_id']);
                         $admin_commission_amount = intval($admin_commission_percentage) / 100;
-                        $total = $order_details[0]['final_total'];
+                        $total = $order_details[0]['total'];
                         $commision = intval($total) * $admin_commission_amount;
                         $isHandymanCollection = _is_handyman_completion($order_id, $user_id);
 
@@ -921,9 +921,9 @@ function validate_status($order_id, $status, $date = '', $selected_time = "", $o
                     $user_details = fetch_details('users', ['id' => $order_details[0]['partner_id']]);
                     $admin_commission_percentage = get_admin_commision($order_details[0]['partner_id']);
                     $admin_commission_amount = intval($admin_commission_percentage) / 100;
-                    $total = $order_details[0]['final_total'];
+                    $total = $order_details[0]['total'];
                     $commision = intval($total) * $admin_commission_amount;
-                    $unsettled_amount = $total - $commision;
+                    $unsettled_amount = $order_details[0]['final_total'] - $commision;
                     update_details(["status" => $status], ["order_id" => $order_id], "order_services");
                     update_details(["balance" => $user_details[0]['balance'] + $unsettled_amount], ["id" => $order_details[0]['partner_id']], "users");
                     add_settlement_cashcollection_history('Received by admin', 'received_by_admin', date('Y-m-d'), date('h:i:s'), $unsettled_amount, $order_details[0]['partner_id'], $order_id, '', $admin_commission_percentage, $total, $commision);
@@ -931,7 +931,7 @@ function validate_status($order_id, $status, $date = '', $selected_time = "", $o
                 if (($order_details[0]['payment_method']) == "cod") {
                     $admin_commission_percentage = get_admin_commision($order_details[0]['partner_id']);
                     $admin_commission_amount = intval($admin_commission_percentage) / 100;
-                    $total = $order_details[0]['final_total'];
+                    $total = $order_details[0]['total'];
                     $commision = intval($total) * $admin_commission_amount;
                     $isHandymanCollection = _is_handyman_completion($order_id, $user_id);
 
@@ -1515,7 +1515,7 @@ function validate_status($order_id, $status, $date = '', $selected_time = "", $o
 
 function unsettled_commision($partner_id = '')
 {
-    $amount = fetch_details('orders', ['partner_id' => $partner_id, 'is_commission_settled' => '0', 'status' => 'completed'], ['sum(final_total) as total']);
+    $amount = fetch_details('orders', ['partner_id' => $partner_id, 'is_commission_settled' => '0', 'status' => 'completed'], ['sum(total) as total']);
     if (isset($amount) && !empty($amount)) {
         $admin_commission_percentage = get_admin_commision($partner_id);
         $admin_commission_amount = intval($admin_commission_percentage) / 100;
@@ -5208,13 +5208,13 @@ function resize_image($image, $new_image, $thumbnail, $width = 300, $height = 30
 
 function provider_total_earning_chart($partner_id = '')
 {
-    $amount = fetch_details('orders', ['partner_id' => $partner_id, 'is_commission_settled' => '0'], ['sum(final_total) as total']);
+    $amount = fetch_details('orders', ['partner_id' => $partner_id, 'is_commission_settled' => '0'], ['sum(total) as total']);
     $db = \config\Database::connect();
     // Fixed: Group by YEAR and MONTH instead of created_at to ensure correct monthly aggregation
     // Use date_of_service for earnings as it represents when the service was actually provided
     $builder = $db
         ->table('orders')
-        ->select('SUM(final_total) AS total, DATE_FORMAT(date_of_service,"%b") AS month_name')
+        ->select('SUM(total) AS total, DATE_FORMAT(date_of_service,"%b") AS month_name')
         ->where('partner_id', $partner_id)
         ->where('status', 'completed')
         ->groupBy('YEAR(date_of_service), MONTH(date_of_service)')
@@ -10159,7 +10159,7 @@ if (!function_exists('validate_order_status')) {
             $order_details = fetch_details('orders', ['id' => $order_id]);
             $partner_id = $order_details[0]['partner_id'];
             $admin_commission_pct = get_admin_commision($partner_id);
-            $commission = (float) $order_details[0]['final_total'] * ((float) $admin_commission_pct / 100);
+            $commission = (float) $order_details[0]['total'] * ((float) $admin_commission_pct / 100);
 
             update_details(['status' => $status] + $statusActorFields, ['id' => $order_id], 'orders');
             send_booking_status_notifications($order_id, $status, $translated_status, $active_status, $languageCode, $user_id);
